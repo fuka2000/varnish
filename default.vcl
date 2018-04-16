@@ -1,24 +1,27 @@
-
 # This is a basic VCL configuration file for varnish.  See the vcl(7)
 # man page for details on VCL syntax and semantics.
-# 
+#
 # Default backend definition.  Set this to point to your content
 # server.
-# 
+#
 backend default {
   .host = "127.0.0.1";
   .port = "8080";
 }
 
-# https://gist.github.com/matthewjackowski/062be03b41a68edbadfc
-# these are snippets taken from Varnish 4 VCL configuration for WordPress. Also allows purging
+#------------------------------------------------------------------------------------
+# mcdaniel
+# apr-2018
 #
-# also see: https://www.fastly.com/blog/overriding-origin-ttl-varnish-or-my-beginners-mistake
+# Additional research sources for customization Varnish for Wordpress:
 #
-# and also: https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
-#
-sub vcl_deliver { 
-    # oh noes backend is down
+#   https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
+#   https://www.modpagespeed.com/doc/downstream-caching
+#   https://gist.github.com/matthewjackowski/062be03b41a68edbadfc
+#   https://www.fastly.com/blog/overriding-origin-ttl-varnish-or-my-beginners-mistake
+#   https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
+sub vcl_deliver {
+    # backend is down
     if (resp.status == 503) {
         return(restart);
     }
@@ -42,6 +45,7 @@ sub vcl_fetch {
 }
 
 sub vcl_error {
+    # redirect http to https
     if(obj.status == 850) {
         set obj.http.Location = "https://" + req.http.host + req.url;
         set obj.status = 301;
@@ -51,7 +55,10 @@ sub vcl_error {
 
 sub vcl_recv {
 
-  # look for AWS ELB health checks and pass these thru right away
+  # PRIORITY 1
+  #------------------------------------------------------------------------------------------------
+  # look for AWS ELB health checks and pass these thru right away. AWS ELB conistently sends around 20 requests
+  # per minute.
   if(req.http.User-Agent) {
     if (req.http.User-Agent ~ "ELB-HealthChecker/2.0" ) {
      return (lookup);
@@ -59,13 +66,17 @@ sub vcl_recv {
   }
 
 
-  # are we looking at an https request? if not, initiate a redirect
+  # PRIORITY 2
+  #------------------------------------------------------------------------------------------------
+  # redirect all other http requests to https
   if (req.http.X-Forwarded-Proto !~ "https") {
    error 850 "Moved permanently";
   }
 
-  # -----------------   pass logged in users and console url's to backend. ------------------------
-  
+  # PRIORITY 3
+  #------------------------------------------------------------------------------------------------
+  # Pass logged in Wordpress users and any console url's directly to backend with any modification.
+
   # pass wp-admin urls
    if (req.url ~ "(wp-login|wp-admin)" || req.url ~ "preview=true" || req.url ~ "xmlrpc.php") {
     return (pass);
@@ -86,9 +97,13 @@ sub vcl_recv {
       return (pass);
   }
 
-  #--------------------- evaluate potentially cacheable requests --------------------
+  # PRIORITY 3
+  #------------------------------------------------------------------------------------------------
+  # Do everything we can to make each remaining request cacheable.
 
-  # drop cookies and params from static assets
+  # Wordpress adds cookies to a lot of things, but most of these cookies are only really
+  # necesary if the user is logged in and editing content. Logged in users were passed to the backen
+  # in PRIORITY 2, so we can safely drop cookies and params from any requests for static assets
   if (req.url ~ "\.(gif|jpg|jpeg|swf|ttf|css|js|flv|mp3|mp4|pdf|ico|png)(\?.*|)$") {
     unset req.http.cookie;
     set req.url = regsub(req.url, "\?.*$", "");
@@ -115,7 +130,9 @@ sub vcl_recv {
 
   }
 
-  # Unset headers that might cause us to cache duplicate info
+  # And finally, unset headers that might cause us to cache duplicate info. Of these, cookie and User-Agent
+  # seem to be the biggest culprits for ruining the best laid caching strategies. Since the user is not logged in
+  # we'll need neither the cookie or the User-Agent, and for that matter, we "PROBABLY" do not need a language header eitherl
   if(req.http.cookie) {
     unset req.http.cookie;
   }
@@ -135,12 +152,6 @@ sub vcl_hash {
 }
 
 
-# -------------------------------------------- mcdaniel apr-2018 ------------------------------
-# https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
-# https://www.modpagespeed.com/doc/downstream-caching
-#
-
- 
 # Below is a commented-out copy of the default VCL logic.  If you
 # redefine any of these subroutines, the built-in logic will be
 # appended to your code.
@@ -173,7 +184,7 @@ sub vcl_hash {
 #     }
 #     return (lookup);
 # }
-# 
+#
 # sub vcl_pipe {
 #     # Note that only the first request to the backend will have
 #     # X-Forwarded-For set.  If you use X-Forwarded-For and want to
@@ -183,11 +194,11 @@ sub vcl_hash {
 #     # applications, like IIS with NTLM authentication.
 #     return (pipe);
 # }
-# 
+#
 # sub vcl_pass {
 #     return (pass);
 # }
-# 
+#
 # sub vcl_hash {
 #     hash_data(req.url);
 #     if (req.http.host) {
@@ -197,15 +208,15 @@ sub vcl_hash {
 #     }
 #     return (hash);
 # }
-# 
+#
 # sub vcl_hit {
 #     return (deliver);
 # }
-# 
+#
 # sub vcl_miss {
 #     return (fetch);
 # }
-# 
+#
 # sub vcl_fetch {
 #     if (beresp.ttl <= 0s ||
 #         beresp.http.Set-Cookie ||
@@ -218,11 +229,11 @@ sub vcl_hash {
 #     }
 #     return (deliver);
 # }
-# 
+#
 # sub vcl_deliver {
 #     return (deliver);
 # }
-# 
+#
 # sub vcl_error {
 #     set obj.http.Content-Type = "text/html; charset=utf-8";
 #     set obj.http.Retry-After = "5";
@@ -246,11 +257,11 @@ sub vcl_hash {
 # "};
 #     return (deliver);
 # }
-# 
+#
 # sub vcl_init {
 # 	return (ok);
 # }
-# 
+#
 # sub vcl_fini {
 # 	return (ok);
 # }
