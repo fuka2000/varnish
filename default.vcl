@@ -59,10 +59,14 @@ sub vcl_recv {
 
   # PRIORITY 1
   #------------------------------------------------------------------------------------------------
-  # look for AWS ELB health checks and pass these thru right away. AWS ELB conistently sends around 20 requests
-  # per minute.
-  if(req.http.User-Agent) {
-    if (req.http.User-Agent ~ "ELB-HealthChecker/2.0" ) {
+  # look for uptime, health checkers, and friendly robots.
+  # pass these thru right away.
+  #
+  if (req.http.User-Agent) {
+    if (req.http.User-Agent ~ "^ELB-HealthChecker" ||     #AWS ELB health check
+        req.http.User-Agent ~ "^WP Rocket" ||             #WP Rocket performance plugin. installed on all sites.
+        req.http.User-Agent ~ "^Pingdom.com" ||           #uptime monitor
+        req.http.User-Agent ~ "^jetmon") {                #uptime monitor
      return (lookup);
     }
   }
@@ -74,6 +78,21 @@ sub vcl_recv {
   if (req.http.X-Forwarded-Proto !~ "https") {
    error 850 "Moved permanently";
   }
+
+  # look for friendly robots. send these straight to cache pool after having verified
+  # that we have an https request
+  if (req.http.User-Agent) {
+    if (req.http.User-Agent ~ "^facebookexternalhit" ||   #bot
+        req.http.User-Agent ~ "Googlebot" ||              #bot
+        req.http.User-Agent ~ "bingbot" ||                #bot
+        req.http.User-Agent ~ "AhrefsBot" ||              #bot
+        req.http.User-Agent ~ "YandexBot" ||              #bot
+        req.http.User-Agent ~ "^Baiduspider") {                #uptime monitor
+     return (lookup);
+    }
+  }
+
+
 
   # PRIORITY 3
   #------------------------------------------------------------------------------------------------
@@ -99,6 +118,14 @@ sub vcl_recv {
       return (pass);
   }
 
+  # we probably caught all of the logged in Wordpress users already, but just in case ...
+  if (req.http.User-Agent) {
+    if (req.http.User-Agent ~ "^Wordpress") {
+      return (pass);
+    }
+  }
+
+
   # PRIORITY 4
   #------------------------------------------------------------------------------------------------
   # Do everything we can to make each remaining request cacheable.
@@ -106,7 +133,7 @@ sub vcl_recv {
   # Wordpress adds cookies to a lot of things, but most of these cookies are only really
   # necesary if the user is logged in and editing content. Logged in users were passed to the backen
   # in PRIORITY 2, so we can safely drop cookies and params from any requests for static assets
-  if (req.url ~ "\.(gif|jpg|jpeg|swf|ttf|css|js|flv|mp3|mp4|pdf|ico|png)(\?.*|)$") {
+  if (req.url ~ "\.(gif|jpg|jpeg|svg|swf|ttf|css|js|flv|mp3|mp4|pdf|ico|png)(\?.*|)$") {
     unset req.http.cookie;
     set req.url = regsub(req.url, "\?.*$", "");
   }
