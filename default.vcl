@@ -9,17 +9,19 @@ backend default {
   .port = "8080";
 }
 
-#------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------
 # mcdaniel
 # apr-2018
 #
-# Additional research sources for customization Varnish for Wordpress:
+# Varnish configuration for Wordpress backend.
 #
+# Additional research sources for customization Varnish for Wordpress:
 #   https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
 #   https://www.modpagespeed.com/doc/downstream-caching
 #   https://gist.github.com/matthewjackowski/062be03b41a68edbadfc
 #   https://www.fastly.com/blog/overriding-origin-ttl-varnish-or-my-beginners-mistake
 #   https://info.varnish-software.com/blog/step-step-speed-wordpress-varnish-software
+#------------------------------------------------------------------------------------------------
 sub vcl_deliver {
     # backend is down
     if (resp.status == 503) {
@@ -97,7 +99,7 @@ sub vcl_recv {
       return (pass);
   }
 
-  # PRIORITY 3
+  # PRIORITY 4
   #------------------------------------------------------------------------------------------------
   # Do everything we can to make each remaining request cacheable.
 
@@ -130,6 +132,8 @@ sub vcl_recv {
 
   }
 
+  # PRIORITY 5
+  #------------------------------------------------------------------------------------------------
   # And finally, unset headers that might cause us to cache duplicate info. Of these, cookie and User-Agent
   # seem to be the biggest culprits for ruining the best laid caching strategies. Since the user is not logged in
   # we'll need neither the cookie or the User-Agent, and for that matter, we "PROBABLY" do not need a language header eitherl
